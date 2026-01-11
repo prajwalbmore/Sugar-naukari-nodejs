@@ -5,6 +5,8 @@ import {
   getAllJobsForDashboard,
   getEmployerJobListing,
   getJobById,
+  getJobDetails,
+  getEmployerJobData,
   updateJob,
   completeJob,
 } from "../controllers/jobController.js";
@@ -15,6 +17,8 @@ router.post("/", authMiddleware, createJob);
 router.get("/", getAllJobs);
 router.get("/dashboard/employee", authMiddleware, getAllJobsForDashboard);
 router.get("/employer/", authMiddleware, getEmployerJobListing);
+router.get("/get-employer-job-data-web", authMiddleware, getEmployerJobData);
+router.get("/get-job-details", getJobDetails);
 router.get("/:id", authMiddleware, getJobById);
 router.put("/:id", authMiddleware, updateJob);
 router.put("/:id/complete", authMiddleware, completeJob);
