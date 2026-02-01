@@ -1,5 +1,6 @@
 import { Applicant } from "../models/applicants.js";
 import { Job } from "../models/jobs.js";
+import { calculateJobMatch } from "./userController.js";
 
 // ✅ Create Applicant
 export const createApplicant = async (req, res) => {
@@ -106,17 +107,42 @@ export const updateApplicantStatus = async (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
 
-    const applicant = await Applicant.findByIdAndUpdate(
-      id,
-      { status },
-      { new: true },
-    );
+    // Find the applicant first to get jobId
+    const applicant = await Applicant.findById(id).populate('jobId');
 
     if (!applicant) {
       return res
         .status(404)
         .json({ success: false, message: "Applicant not found" });
     }
+
+    // If status is being changed to "approved" (hired), decrement job vacancy
+    if (status === "approved" && applicant.status !== "approved") {
+      const { Job } = await import("../models/jobs.js");
+
+      // Decrement vacancy count
+      await Job.findByIdAndUpdate(
+        applicant.jobId._id,
+        { $inc: { vacancy: -1 } },
+        { new: true }
+      );
+    }
+
+    // If status was "approved" and is being changed to something else, increment vacancy
+    if (applicant.status === "approved" && status !== "approved") {
+      const { Job } = await import("../models/jobs.js");
+
+      // Increment vacancy count
+      await Job.findByIdAndUpdate(
+        applicant.jobId._id,
+        { $inc: { vacancy: 1 } },
+        { new: true }
+      );
+    }
+
+    // Update applicant status
+    applicant.status = status;
+    await applicant.save();
 
     res.json({
       success: true,
@@ -230,7 +256,7 @@ export const getApplicantsForEmployer = async (req, res) => {
 
     // First, get all jobs posted by this employer
     const { Job } = await import('../models/jobs.js');
-    const employerJobs = await Job.find({ createdBy: employerId }).select('_id jobTitle jobRole');
+    const employerJobs = await Job.find({ createdBy: employerId })
     const jobIds = employerJobs.map(job => job._id);
 
     if (jobIds.length === 0) {
@@ -245,11 +271,11 @@ export const getApplicantsForEmployer = async (req, res) => {
     const applications = await Applicant.find({ jobId: { $in: jobIds } })
       .populate({
         path: 'jobId',
-        select: 'jobTitle jobRole',
+        // select: 'jobTitle jobRole',
       })
       .populate({
         path: 'userId',
-        select: 'fullName profile_photo email mobile',
+        // select: 'fullName profile_photo email mobile',
       })
       .sort({ createdAt: -1 });
 
@@ -267,13 +293,7 @@ export const getApplicantsForEmployer = async (req, res) => {
       status: app.status,
       skill_match: 75, // Placeholder - you can calculate this based on skills matching
       review_rating: 4, // Placeholder - you can get this from reviews
-      job_match: {
-        match_percentage: 75,
-        employee_have: 6,
-        total_required: 8,
-        matched_skills: ["JavaScript", "React", "Node.js", "MongoDB", "Express"],
-        unmatched_skills: ["Python", "AWS"]
-      }
+      job_match : calculateJobMatch(app.userId?.skills || [], app.jobId?.skills || [])
     }));
 
     res.json({

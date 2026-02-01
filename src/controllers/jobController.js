@@ -1,7 +1,8 @@
-import { Job } from "../models/jobs.js";
-import { Applicant } from "../models/applicants.js";
-import { User } from "../models/user.js";
-import { sendResponse } from "../utils/response.js";
+import { Job } from '../models/jobs.js';
+import { Applicant } from '../models/applicants.js';
+import { User } from '../models/user.js';
+import { sendResponse } from '../utils/response.js';
+import { calculateJobMatch } from './userController.js';
 
 /**
  * Create Job
@@ -39,10 +40,10 @@ export const createJob = async (req, res) => {
       createdBy: req.user?.id || null, // optional auth user
     });
 
-    return sendResponse(res, true, "Job created successfully.", job);
+    return sendResponse(res, true, 'Job created successfully.', job);
   } catch (error) {
-    console.error("Error creating job:", error);
-    return sendResponse(res, false, error.message || "Error creating job.");
+    console.error('Error creating job:', error);
+    return sendResponse(res, false, error.message || 'Error creating job.');
   }
 };
 
@@ -51,25 +52,16 @@ export const createJob = async (req, res) => {
  */
 export const getAllJobs = async (req, res) => {
   try {
-    const jobs = await Job.find().sort({ createdAt: -1 });
-
-    return sendResponse(res, true, "Jobs fetched successfully.", jobs);
-  } catch (error) {
-    return sendResponse(res, false, error.message || "Error fetching jobs.");
-  }
-};
-export const getAllJobsForDashboard = async (req, res) => {
-  try {
     const userId = req.user?.id;
 
     // Get jobs with populated employer data
     const jobs = await Job.find()
-      .populate("createdBy", "fullName companyName companyLogo role")
+      .populate('createdBy', 'fullName companyName companyLogo role')
       .sort({ createdAt: -1 });
 
-    // If user is authenticated, add application status to each job
-    if (userId && req.user?.role === "employee") {
-      const { Applicant } = await import("../models/applicants.js");
+    // If user is authenticated and is an employee, add application status to each job
+    if (userId && req.user?.role === 'employee') {
+      const { Applicant } = await import('../models/applicants.js');
 
       const jobsWithStatus = await Promise.all(
         jobs.map(async (job) => {
@@ -89,14 +81,55 @@ export const getAllJobsForDashboard = async (req, res) => {
       return sendResponse(
         res,
         true,
-        "Jobs fetched successfully.",
+        'Jobs fetched successfully.',
         jobsWithStatus,
       );
     }
 
-    return sendResponse(res, true, "Jobs fetched successfully.", jobs);
+    return sendResponse(res, true, 'Jobs fetched successfully.', jobs);
   } catch (error) {
-    return sendResponse(res, false, error.message || "Error fetching jobs.");
+    return sendResponse(res, false, error.message || 'Error fetching jobs.');
+  }
+};
+export const getAllJobsForDashboard = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+
+    // Get jobs with populated employer data
+    const jobs = await Job.find()
+      .populate('createdBy', 'fullName companyName companyLogo role')
+      .sort({ createdAt: -1 });
+
+    // If user is authenticated, add application status to each job
+    if (userId && req.user?.role === 'employee') {
+      const { Applicant } = await import('../models/applicants.js');
+
+      const jobsWithStatus = await Promise.all(
+        jobs.map(async (job) => {
+          const application = await Applicant.findOne({
+            jobId: job._id,
+            userId: userId,
+          });
+
+          return {
+            ...job.toObject(),
+            hasApplied: !!application,
+            applicationStatus: application?.status || null,
+          };
+        }),
+      );
+
+      return sendResponse(
+        res,
+        true,
+        'Jobs fetched successfully.',
+        jobsWithStatus,
+      );
+    }
+
+    return sendResponse(res, true, 'Jobs fetched successfully.', jobs);
+  } catch (error) {
+    return sendResponse(res, false, error.message || 'Error fetching jobs.');
   }
 };
 
@@ -106,11 +139,33 @@ export const getAllJobsForDashboard = async (req, res) => {
 export const getJobById = async (req, res) => {
   try {
     const { id } = req.params;
-    const job = await Job.findById(id);
-    if (!job) return sendResponse(res, false, "Job not found.");
-    return sendResponse(res, true, "Job fetched successfully.", job);
+    const userId = req.user?.id;
+
+    const job = await Job.findById(id).populate(
+      'createdBy',
+      'fullName companyName companyLogo role email mobile',
+    );
+    if (!job) return sendResponse(res, false, 'Job not found.');
+
+    // If user is authenticated and is an employee, add application status
+    let jobData = job.toObject();
+    if (userId && req.user?.role === 'employee') {
+      const { Applicant } = await import('../models/applicants.js');
+      const application = await Applicant.findOne({
+        jobId: job._id,
+        userId: userId,
+      });
+
+      jobData = {
+        ...jobData,
+        hasApplied: !!application,
+        applicationStatus: application?.status || null,
+      };
+    }
+
+    return sendResponse(res, true, 'Job fetched successfully.', jobData);
   } catch (error) {
-    return sendResponse(res, false, error.message || "Error fetching job.");
+    return sendResponse(res, false, error.message || 'Error fetching job.');
   }
 };
 
@@ -120,21 +175,21 @@ export const getJobById = async (req, res) => {
 export const updateJob = async (req, res) => {
   try {
     const { id } = req.params;
-    if (!id) return sendResponse(res, false, "Job ID is required.");
+    if (!id) return sendResponse(res, false, 'Job ID is required.');
 
     const updates = {};
     const allowedFields = [
-      "jobTitle",
-      "jobDescription",
-      "jobRole",
-      "exp_level",
-      "skills",
-      "salary",
-      "vacancy",
-      "location",
-      "startdate",
-      "enddate",
-      "status",
+      'jobTitle',
+      'jobDescription',
+      'jobRole',
+      'exp_level',
+      'skills',
+      'salary',
+      'vacancy',
+      'location',
+      'startdate',
+      'enddate',
+      'status',
     ];
 
     // Add only fields that exist in req.body
@@ -146,7 +201,7 @@ export const updateJob = async (req, res) => {
 
     // Find job first
     const job = await Job.findById(id);
-    if (!job) return sendResponse(res, false, "Job not found.");
+    if (!job) return sendResponse(res, false, 'Job not found.');
 
     // Update fields manually
     Object.assign(job, updates);
@@ -154,9 +209,9 @@ export const updateJob = async (req, res) => {
     // Save updated job
     await job.save();
 
-    return sendResponse(res, true, "Job updated successfully.", job);
+    return sendResponse(res, true, 'Job updated successfully.', job);
   } catch (error) {
-    return sendResponse(res, false, error.message || "Error updating job.");
+    return sendResponse(res, false, error.message || 'Error updating job.');
   }
 };
 
@@ -168,16 +223,16 @@ export const updateJobStatus = async (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
 
-    if (!["active", "closed", "draft"].includes(status)) {
-      return sendResponse(res, false, "Invalid status provided.");
+    if (!['active', 'closed', 'draft'].includes(status)) {
+      return sendResponse(res, false, 'Invalid status provided.');
     }
 
     const job = await Job.findByIdAndUpdate(id, { status }, { new: true });
-    if (!job) return sendResponse(res, false, "Job not found.");
+    if (!job) return sendResponse(res, false, 'Job not found.');
 
     return sendResponse(res, true, `Job status updated to ${status}.`, job);
   } catch (error) {
-    return sendResponse(res, false, error.message || "Error updating status.");
+    return sendResponse(res, false, error.message || 'Error updating status.');
   }
 };
 
@@ -190,16 +245,16 @@ export const completeJob = async (req, res) => {
     const { enddate } = req.body;
 
     const job = await Job.findById(id);
-    if (!job) return sendResponse(res, false, "Job not found.");
+    if (!job) return sendResponse(res, false, 'Job not found.');
 
     // Update job with end date and completed status
     job.enddate = enddate || new Date();
-    job.status = "completed";
+    job.status = 'completed';
     await job.save();
 
-    return sendResponse(res, true, "Job completed successfully.", job);
+    return sendResponse(res, true, 'Job completed successfully.', job);
   } catch (error) {
-    return sendResponse(res, false, error.message || "Error completing job.");
+    return sendResponse(res, false, error.message || 'Error completing job.');
   }
 };
 
@@ -210,10 +265,10 @@ export const deleteJob = async (req, res) => {
   try {
     const { id } = req.params;
     const job = await Job.findByIdAndDelete(id);
-    if (!job) return sendResponse(res, false, "Job not found.");
-    return sendResponse(res, true, "Job deleted successfully.", job);
+    if (!job) return sendResponse(res, false, 'Job not found.');
+    return sendResponse(res, true, 'Job deleted successfully.', job);
   } catch (error) {
-    return sendResponse(res, false, error.message || "Error deleting job.");
+    return sendResponse(res, false, error.message || 'Error deleting job.');
   }
 };
 
@@ -225,17 +280,33 @@ export const getJobDetails = async (req, res) => {
     const { job_id } = req.query;
 
     if (!job_id) {
-      return sendResponse(res, false, "Job ID is required");
+      return sendResponse(res, false, 'Job ID is required');
     }
 
-    const job = await Job.findById(job_id).populate('createdBy', 'fullName companyName companyLogo');
+    const job = await Job.findById(job_id).populate(
+      'createdBy',
+      'fullName companyName companyLogo',
+    );
 
     if (!job) {
-      return sendResponse(res, false, "Job not found");
+      return sendResponse(res, false, 'Job not found');
     }
 
     // Get application count
     const applicationCount = await Applicant.countDocuments({ jobId: job_id });
+
+    // Check if user has applied for this job
+    let hasApplied = false;
+    let applicationStatus = null;
+    if (req.user?.id && req.user?.role === 'employee') {
+      const { Applicant } = await import('../models/applicants.js');
+      const application = await Applicant.findOne({
+        jobId: job._id,
+        userId: req.user.id,
+      });
+      hasApplied = !!application;
+      applicationStatus = application?.status || null;
+    }
 
     // Format the job data for frontend
     const jobData = {
@@ -246,10 +317,10 @@ export const getJobDetails = async (req, res) => {
       verified: true, // You can add verification logic here
       location: job.location,
       employer_rating: 4.5, // Mock rating, you can calculate from reviews
-      duration: "Recently posted", // You can calculate this
-      views: "10 people viewed", // Mock data
+      duration: 'Recently posted', // You can calculate this
+      views: '10 people viewed', // Mock data
       valid_till: job.startdate,
-      time: "9:00 AM - 5:00 PM", // Default time
+      time: '9:00 AM - 5:00 PM', // Default time
       salary: job.salary,
       applied: applicationCount,
       capacity: job.vacancy,
@@ -261,13 +332,19 @@ export const getJobDetails = async (req, res) => {
       start_date: job.startdate.toISOString().split('T')[0],
       exp_level: job.exp_level,
       skills: job.skills || [],
-      status: job.status
+      status: job.status,
+      hasApplied,
+      applicationStatus,
     };
 
-    return sendResponse(res, true, "Job details fetched successfully", jobData);
+    return sendResponse(res, true, 'Job details fetched successfully', jobData);
   } catch (error) {
     console.error('Get job details error:', error);
-    return sendResponse(res, false, error.message || "Error fetching job details");
+    return sendResponse(
+      res,
+      false,
+      error.message || 'Error fetching job details',
+    );
   }
 };
 
@@ -280,19 +357,22 @@ export const getEmployerJobData = async (req, res) => {
     const userId = req.user?.id;
 
     if (!job_id) {
-      return sendResponse(res, false, "Job ID is required");
+      return sendResponse(res, false, 'Job ID is required');
     }
 
     // Get job details
-    const job = await Job.findById(job_id).populate('createdBy', 'fullName companyName companyLogo');
+    const job = await Job.findById(job_id).populate(
+      'createdBy',
+      'fullName companyName companyLogo',
+    );
 
     if (!job) {
-      return sendResponse(res, false, "Job not found");
+      return sendResponse(res, false, 'Job not found');
     }
 
     // Check if user owns this job
     if (job.createdBy._id.toString() !== userId) {
-      return sendResponse(res, false, "Unauthorized access to job");
+      return sendResponse(res, false, 'Unauthorized access to job');
     }
 
     let responseData = {};
@@ -308,22 +388,30 @@ export const getEmployerJobData = async (req, res) => {
           salary: job.salary,
           exp_level: job.exp_level,
           skills: job.skills,
-          status: job.status
+          status: job.status,
+          location: job.location,
+          jobTitle: job.jobTitle,
+          // ...job,
         };
 
         // Get applicant count
-        const applicantCount = await Applicant.countDocuments({ jobId: job_id });
+        const applicantCount = await Applicant.countDocuments({
+          jobId: job_id,
+        });
         responseData.applied = applicantCount;
         break;
 
       case 'applicants':
         // Get all applicants for this job
         const applicants = await Applicant.find({ jobId: job_id })
-          .populate('userId', 'fullName email phone profilePicture experience skills')
+          .populate(
+            'userId',
+            'fullName email phone profilePicture experience skills',
+          )
           .sort({ createdAt: -1 });
 
         responseData = {
-          applicants: applicants.map(applicant => ({
+          applicants: applicants.map((applicant) => ({
             id: applicant._id,
             user_id: applicant.userId._id,
             name: applicant.userId.fullName,
@@ -334,12 +422,19 @@ export const getEmployerJobData = async (req, res) => {
             skills: applicant.userId.skills,
             status: applicant.status,
             applied_date: applicant.createdAt,
-            rating: applicant.rating || 0
+            rating: applicant.rating || 0,
+            job_match: calculateJobMatch(
+              applicant.userId?.skills || [],
+              job?.skills || [],
+            ),
           })),
           total_applicants: applicants.length,
-          pending_count: applicants.filter(a => a.status === 'applied').length,
-          approved_count: applicants.filter(a => a.status === 'approved').length,
-          rejected_count: applicants.filter(a => a.status === 'rejected').length
+          pending_count: applicants.filter((a) => a.status === 'applied')
+            .length,
+          approved_count: applicants.filter((a) => a.status === 'approved')
+            .length,
+          rejected_count: applicants.filter((a) => a.status === 'rejected')
+            .length,
         };
         break;
 
@@ -358,20 +453,24 @@ export const getEmployerJobData = async (req, res) => {
             { day: 'Thu', applications: Math.floor(Math.random() * 10) },
             { day: 'Fri', applications: Math.floor(Math.random() * 10) },
             { day: 'Sat', applications: Math.floor(Math.random() * 5) },
-            { day: 'Sun', applications: Math.floor(Math.random() * 5) }
-          ]
+            { day: 'Sun', applications: Math.floor(Math.random() * 5) },
+          ],
         };
         break;
 
       default:
-        return sendResponse(res, false, "Invalid tab name");
+        return sendResponse(res, false, 'Invalid tab name');
     }
 
-    return sendResponse(res, true, "Job data retrieved successfully", responseData);
-
+    return sendResponse(
+      res,
+      true,
+      'Job data retrieved successfully',
+      responseData,
+    );
   } catch (error) {
     console.error('Get employer job data error:', error);
-    return sendResponse(res, false, error.message || "Error fetching job data");
+    return sendResponse(res, false, error.message || 'Error fetching job data');
   }
 };
 
@@ -379,36 +478,36 @@ export const getEmployerJobListing = async (req, res) => {
   try {
     const { status } = req.params; // e.g. active, draft, closed, etc.
 
-    const filter = status && status !== "all" ? { status } : {};
+    const filter = status && status !== 'all' ? { status } : {};
 
-    const jobs = await Job.find(filter).populate("createdBy");
+    const jobs = await Job.find(filter).populate('createdBy');
 
     const formattedJobs = jobs.map((job) => ({
       job_id: job._id,
       job_role: job.jobRole,
       status:
-        job.status === "closed"
-          ? "inactive"
-          : job.status === "draft"
-            ? "save-as-draft"
-            : "active",
-      posted_on: job.createdAt.toISOString().split("T")[0],
-      start_date: job.startdate.toISOString().split("T")[0],
+        job.status === 'closed'
+          ? 'inactive'
+          : job.status === 'draft'
+            ? 'save-as-draft'
+            : 'active',
+      posted_on: job.createdAt.toISOString().split('T')[0],
+      start_date: job.startdate.toISOString().split('T')[0],
       no_of_applications: 0, // you can replace this with actual applicant count if you track it
       total_vacancy: job.vacancy,
-      is_close_possible: job.status === "active",
+      is_close_possible: job.status === 'active',
       raw: job, // simple logic, adjust as needed
     }));
 
     res.json({
       success: true,
-      message: "Jobs fetched successfully",
+      message: 'Jobs fetched successfully',
       data: formattedJobs,
     });
   } catch (err) {
     res.status(500).json({
       success: false,
-      message: err.message || "Error fetching jobs",
+      message: err.message || 'Error fetching jobs',
     });
   }
 };
@@ -426,16 +525,22 @@ export const getEmployerDashboardOverview = async (req, res) => {
 
     // Calculate statistics
     const totalJobsPosted = jobs.length;
-    const activeJobs = jobs.filter(job => job.status === 'active').length;
-    const completedJobs = jobs.filter(job => job.status === 'completed').length;
-    const closedJobs = jobs.filter(job => job.status === 'closed').length;
+    const activeJobs = jobs.filter((job) => job.status === 'active').length;
+    const completedJobs = jobs.filter(
+      (job) => job.status === 'completed',
+    ).length;
+    const closedJobs = jobs.filter((job) => job.status === 'closed').length;
 
     // Get applications for employer's jobs
-    const jobIds = jobs.map(job => job._id);
+    const jobIds = jobs.map((job) => job._id);
     const applications = await Applicant.find({ jobId: { $in: jobIds } });
 
-    const approvedApplications = applications.filter(app => app.status === 'approved').length;
-    const pendingApplications = applications.filter(app => app.status === 'pending').length;
+    const approvedApplications = applications.filter(
+      (app) => app.status === 'approved',
+    ).length;
+    const pendingApplications = applications.filter(
+      (app) => app.status === 'pending',
+    ).length;
 
     // Get today's applications
     const today = new Date();
@@ -443,7 +548,7 @@ export const getEmployerDashboardOverview = async (req, res) => {
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
-    const todaysApplications = applications.filter(app => {
+    const todaysApplications = applications.filter((app) => {
       const appDate = new Date(app.createdAt);
       return appDate >= today && appDate < tomorrow;
     });
@@ -462,16 +567,16 @@ export const getEmployerDashboardOverview = async (req, res) => {
           _id: '$userId',
           jobsCompleted: { $sum: 1 },
           totalRating: { $sum: '$rating' },
-          ratingCount: { $sum: { $cond: [{ $ne: ['$rating', null] }, 1, 0] } }
-        }
+          ratingCount: { $sum: { $cond: [{ $ne: ['$rating', null] }, 1, 0] } },
+        },
       },
       {
         $lookup: {
           from: 'users',
           localField: '_id',
           foreignField: '_id',
-          as: 'user'
-        }
+          as: 'user',
+        },
       },
       { $unwind: '$user' },
       {
@@ -482,13 +587,13 @@ export const getEmployerDashboardOverview = async (req, res) => {
             $cond: {
               if: { $gt: ['$ratingCount', 0] },
               then: { $divide: ['$totalRating', '$ratingCount'] },
-              else: 0
-            }
-          }
-        }
+              else: 0,
+            },
+          },
+        },
       },
       { $sort: { jobs_completed: -1 } },
-      { $limit: 5 }
+      { $limit: 5 },
     ]);
 
     // Get top roles by applications
@@ -499,8 +604,8 @@ export const getEmployerDashboardOverview = async (req, res) => {
           from: 'applicants',
           localField: '_id',
           foreignField: 'jobId',
-          as: 'applications'
-        }
+          as: 'applications',
+        },
       },
       {
         $project: {
@@ -511,14 +616,14 @@ export const getEmployerDashboardOverview = async (req, res) => {
               $filter: {
                 input: '$applications',
                 as: 'app',
-                cond: { $eq: ['$$app.status', 'approved'] }
-              }
-            }
-          }
-        }
+                cond: { $eq: ['$$app.status', 'approved'] },
+              },
+            },
+          },
+        },
       },
       { $sort: { jobs: -1 } },
-      { $limit: 5 }
+      { $limit: 5 },
     ]);
 
     const dashboardData = {
@@ -533,37 +638,38 @@ export const getEmployerDashboardOverview = async (req, res) => {
       ongoingcount: activeJobs,
       applicants_today: {
         applicants_applied: todaysApplications.length,
-        date: today.toISOString().split('T')[0]
+        date: today.toISOString().split('T')[0],
       },
-      job_updates: recentJobs.map(job => ({
+      job_updates: recentJobs.map((job) => ({
         job_id: job._id,
         job_role: job.jobRole,
         location: job.location,
         start_date: job.startdate,
         start_time: '09:00 AM', // Default time
-        end_time: '05:00 PM',   // Default time
+        end_time: '05:00 PM', // Default time
         salary: job.salary,
-        no_of_applications: applications.filter(app => app.jobId.toString() === job._id.toString()).length,
+        no_of_applications: applications.filter(
+          (app) => app.jobId.toString() === job._id.toString(),
+        ).length,
         total_vacancy: job.vacancy,
         status: job.status,
-        posted_on: job.createdAt
+        posted_on: job.createdAt,
       })),
       topEmployees,
       top_roles: topRoles,
-      data_available: true
+      data_available: true,
     };
 
     res.json({
       success: true,
-      message: "Dashboard data fetched successfully",
-      data: dashboardData
+      message: 'Dashboard data fetched successfully',
+      data: dashboardData,
     });
-
   } catch (error) {
     console.error('Employer dashboard error:', error);
     res.status(500).json({
       success: false,
-      message: error.message || "Error fetching dashboard data"
+      message: error.message || 'Error fetching dashboard data',
     });
   }
 };
@@ -582,9 +688,15 @@ export const getEmployeeDashboardOverview = async (req, res) => {
       .sort({ createdAt: -1 });
 
     const appliedJobs = applications.length;
-    const approvedJobs = applications.filter(app => app.status === 'approved').length;
-    const rejectedJobs = applications.filter(app => app.status === 'rejected').length;
-    const completedJobs = applications.filter(app => app.status === 'completed').length;
+    const approvedJobs = applications.filter(
+      (app) => app.status === 'approved',
+    ).length;
+    const rejectedJobs = applications.filter(
+      (app) => app.status === 'rejected',
+    ).length;
+    const completedJobs = applications.filter(
+      (app) => app.status === 'completed',
+    ).length;
 
     // Get saved jobs (assuming you have a saved jobs feature)
     const savedJobs = 0; // TODO: Implement saved jobs feature
@@ -599,43 +711,45 @@ export const getEmployeeDashboardOverview = async (req, res) => {
       // Find jobs within radius (simplified - you might want to use geospatial queries)
       const nearbyJobs = await Job.find({
         status: 'active',
-        createdBy: { $ne: userId } // Don't show own jobs
+        createdBy: { $ne: userId }, // Don't show own jobs
       })
-      .populate('createdBy', 'fullName companyName')
-      .sort({ createdAt: -1 })
-      .limit(10);
+        .populate('createdBy', 'fullName companyName')
+        .sort({ createdAt: -1 })
+        .limit(10);
 
       // Filter out already applied jobs
-      const appliedJobIds = applications.map(app => app.jobId?.toString());
-      recommendedJobs = nearbyJobs.filter(job => !appliedJobIds.includes(job._id.toString()));
+      const appliedJobIds = applications.map((app) => app.jobId?.toString());
+      recommendedJobs = nearbyJobs.filter(
+        (job) => !appliedJobIds.includes(job._id.toString()),
+      );
     } else {
       // Get recent active jobs if no location
       recommendedJobs = await Job.find({
         status: 'active',
-        createdBy: { $ne: userId }
+        createdBy: { $ne: userId },
       })
-      .populate('createdBy', 'fullName companyName')
-      .sort({ createdAt: -1 })
-      .limit(10);
+        .populate('createdBy', 'fullName companyName')
+        .sort({ createdAt: -1 })
+        .limit(10);
     }
 
     // Calculate earnings (from completed jobs)
     const earnings = applications
-      .filter(app => app.status === 'completed')
+      .filter((app) => app.status === 'completed')
       .reduce((total, app) => {
         // Assuming job has salary field
         return total + (app.jobId?.salary || 0);
       }, 0);
 
     // Get application history for dashboard
-    const applicationHistory = applications.slice(0, 5).map(app => ({
+    const applicationHistory = applications.slice(0, 5).map((app) => ({
       job_title: app.jobId?.jobTitle || 'Unknown Job',
       company_name: app.jobId?.createdBy?.fullName || 'Unknown Company',
       company_logo: app.jobId?.createdBy?.companyLogo || null,
       role: app.jobId?.jobRole || 'Unknown Role',
       date_applied: app.createdAt.toISOString().split('T')[0],
       status: app.status,
-      salary: app.jobId?.salary || 0
+      salary: app.jobId?.salary || 0,
     }));
 
     // Generate earnings chart data (mock data for 7 days)
@@ -660,48 +774,65 @@ export const getEmployeeDashboardOverview = async (req, res) => {
         saved_jobs: savedJobs,
         profile_view: profileView,
         completed: completedJobs,
-        approved_jobs: approvedJobs
+        approved_jobs: approvedJobs,
       },
       overview: {
         applied: appliedJobs,
         save: savedJobs,
         approved: approvedJobs,
         reject: rejectedJobs,
-        "on-going": applications.filter(app => app.status === 'approved' && app.jobId?.status === 'active').length,
-        completed: completedJobs
+        'on-going': applications.filter(
+          (app) => app.status === 'approved' && app.jobId?.status === 'active',
+        ).length,
+        completed: completedJobs,
       },
-      recommended_jobs: recommendedJobs.map(job => ({
-        id: job._id,
-        title: job.jobTitle,
-        company: job.createdBy?.fullName || 'Unknown Company',
-        location: job.location,
-        salary: job.salary,
-        skills: job.skills || [],
-        posted_date: job.createdAt,
-        type: job.exp_level || 'Full-time'
-      })),
+      recommended_jobs: await Promise.all(
+        recommendedJobs.map(async (job) => {
+          // Check if user has already applied to this job
+          const { Applicant } = await import('../models/applicants.js');
+          const application = await Applicant.findOne({
+            jobId: job._id,
+            userId: userId,
+          });
+
+          return {
+            id: job._id,
+            title: job.jobTitle,
+            company:
+              job.createdBy?.companyName ||
+              job.createdBy?.fullName ||
+              'Unknown Company',
+            location: job.location,
+            salary: job.salary,
+            skills: job.skills || [],
+            posted_date: job.createdAt,
+            type: job.exp_level || 'Full-time',
+            hasApplied: !!application,
+            applicationStatus: application?.status || null,
+          };
+        }),
+      ),
       earnings: {
         total_earned: earnings,
         this_month: Math.floor(earnings * 0.3), // Mock monthly data
-        pending: Math.floor(earnings * 0.1)     // Mock pending data
+        pending: Math.floor(earnings * 0.1), // Mock pending data
       },
       earnings_chart: earningsChart,
       applications_chart: applicationsChart,
       application_history: applicationHistory,
-      data_available: true
+      data_available: true,
     };
 
     res.json({
       success: true,
-      message: "Employee dashboard data fetched successfully",
-      data: dashboardData
+      message: 'Employee dashboard data fetched successfully',
+      data: dashboardData,
     });
-
   } catch (error) {
     console.error('Employee dashboard error:', error);
     res.status(500).json({
       success: false,
-      message: error.message || "Error fetching dashboard data"
+      message: error.message || 'Error fetching dashboard data',
     });
   }
 };

@@ -1,5 +1,6 @@
-import bcrypt from "bcryptjs";
-import { User } from "../models/user.js";
+import bcrypt from 'bcryptjs';
+import { User } from '../models/user.js';
+import { Job } from '../models/jobs.js';
 
 export const updateEmployeeProfile = async (req, res) => {
   try {
@@ -16,10 +17,10 @@ export const updateEmployeeProfile = async (req, res) => {
     console.log(req.body);
     // Step 1: Verify user exists and is an employee
     const user = await User.findById(userId);
-    if (!user || user.role !== "employee") {
+    if (!user || user.role !== 'employee') {
       return res.status(404).json({
         success: false,
-        message: "Employee not found",
+        message: 'Employee not found',
         data: null,
       });
     }
@@ -41,7 +42,7 @@ export const updateEmployeeProfile = async (req, res) => {
 
     return res.json({
       success: true,
-      message: "Employee profile updated successfully",
+      message: 'Employee profile updated successfully',
       data: updatedEmployee,
     });
   } catch (error) {
@@ -75,10 +76,10 @@ export const updateEmployerProfile = async (req, res) => {
 
     // Step 1: Verify user exists and is an employer
     const user = await User.findById(userId);
-    if (!user || user.role !== "employer") {
+    if (!user || user.role !== 'employer') {
       return res.status(404).json({
         success: false,
-        message: "Employer not found",
+        message: 'Employer not found',
         data: null,
       });
     }
@@ -124,7 +125,7 @@ export const updateEmployerProfile = async (req, res) => {
 
     return res.json({
       success: true,
-      message: "Employer profile updated successfully",
+      message: 'Employer profile updated successfully',
       data: user,
     });
   } catch (error) {
@@ -145,7 +146,7 @@ export const getUsers = async (req, res) => {
     const users = await User.find();
     res.status(200).json({ success: true, data: users });
   } catch (error) {
-    res.status(500).json({ success: false, message: "Server error" });
+    res.status(500).json({ success: false, message: 'Server error' });
   }
 };
 
@@ -160,14 +161,14 @@ export const getUserById = async (req, res) => {
     if (!user) {
       return res
         .status(404)
-        .json({ success: false, message: "User not found" });
+        .json({ success: false, message: 'User not found' });
     }
 
     res.status(200).json({ success: true, data: user });
   } catch (error) {
     res
       .status(500)
-      .json({ success: false, message: "Server error", error: error.message });
+      .json({ success: false, message: 'Server error', error: error.message });
   }
 };
 
@@ -183,7 +184,7 @@ export const updateUser = async (req, res) => {
     if (!user) {
       return res
         .status(404)
-        .json({ success: false, message: "User not found" });
+        .json({ success: false, message: 'User not found' });
     }
 
     // Hash the password if provided
@@ -196,7 +197,7 @@ export const updateUser = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: "User updated successfully",
+      message: 'User updated successfully',
       data: {
         id: user.id,
         name: user.name,
@@ -204,7 +205,7 @@ export const updateUser = async (req, res) => {
       },
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: "Server error" });
+    res.status(500).json({ success: false, message: 'Server error' });
   }
 };
 
@@ -219,49 +220,107 @@ export const deleteUser = async (req, res) => {
     if (!user) {
       return res
         .status(404)
-        .json({ success: false, message: "User not found" });
+        .json({ success: false, message: 'User not found' });
     }
 
     await user.destroy();
     res
       .status(200)
-      .json({ success: true, message: "User deleted successfully" });
+      .json({ success: true, message: 'User deleted successfully' });
   } catch (error) {
-    res.status(500).json({ success: false, message: "Server error" });
+    res.status(500).json({ success: false, message: 'Server error' });
   }
 };
 
 /**
  * Get Applicant Details for Employer View
  */
+// utils/jobMatch.js
+
+export const calculateJobMatch = (employeeSkills = [], jobSkills = []) => {
+  const normalize = (s) =>
+    String(s || '')
+      .trim()
+      .toLowerCase();
+
+  const empSet = new Set(employeeSkills.map(normalize).filter(Boolean));
+  const jobNormalized = jobSkills.map(normalize).filter(Boolean);
+
+  // Remove duplicates
+  const uniqueJobSkills = [...new Set(jobNormalized)];
+
+  const matched_skills = [];
+  const unmatched_skills = [];
+
+  for (const skill of uniqueJobSkills) {
+    if (empSet.has(skill)) matched_skills.push(skill);
+    else unmatched_skills.push(skill);
+  }
+
+  const total_required = uniqueJobSkills.length;
+  const employee_have = matched_skills.length;
+
+  const match_percentage =
+    total_required === 0
+      ? 0
+      : Math.round((employee_have / total_required) * 100);
+
+  return {
+    match_percentage,
+    employee_have,
+    total_required,
+    matched_skills,
+    unmatched_skills,
+  };
+};
 export const getApplicantDetails = async (req, res) => {
   try {
     const { id: emp_id } = req.params;
     const { job_id } = req.query;
 
-    // Find the user/applicant
-    const user = await User.findById(emp_id);
+    // Find applicant
+    const user = await User.findById(emp_id).lean();
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: "Applicant not found",
+        message: 'Applicant not found',
+        data: null,
       });
     }
 
-    // Find the application for this job if job_id is provided
-    let application = null;
+    // Find application status if job_id is provided
     let application_status = null;
 
     if (job_id) {
-      const { Applicant } = await import("../models/applicants.js");
-      application = await Applicant.findOne({
+      const { Applicant } = await import('../models/applicants.js');
+
+      const application = await Applicant.findOne({
         userId: emp_id,
         jobId: job_id,
-      });
+      }).lean();
+
       application_status = application?.status || null;
     }
 
-    // Format user data for employer view
+    // ✅ Dynamic Job Match
+    let job_match = null;
+
+    if (job_id) {
+      const job = await Job.findById(job_id).select('skills').lean();
+
+      if (job) {
+        job_match = calculateJobMatch(user?.skills || [], job?.skills || []);
+      } else {
+        job_match = {
+          match_percentage: 0,
+          employee_have: 0,
+          total_required: 0,
+          matched_skills: [],
+          unmatched_skills: [],
+        };
+      }
+    }
+
     const applicantData = {
       emp_id: user._id,
       fullName: user.fullName,
@@ -271,10 +330,9 @@ export const getApplicantDetails = async (req, res) => {
       nationality: user.nationality,
       gender: user.gender,
       dob: user.dob,
-      application_status: application_status,
-      employee_reviews: 4.5, // Placeholder for employee reviews
+      application_status,
+      employee_reviews: 4.5,
 
-      // Employee-specific data
       education: user.education || [],
       experience: user.experience || [],
       skills: user.skills || [],
@@ -285,26 +343,96 @@ export const getApplicantDetails = async (req, res) => {
       expectedSalary: user.expectedSalary,
       preferredLocation: user.preferredLocation,
 
-      // Job match data (placeholder)
-      job_match: {
-        match_percentage: 75,
-        employee_have: 6,
-        total_required: 8,
-        matched_skills: ["JavaScript", "React", "Node.js", "MongoDB", "Express"],
-        unmatched_skills: ["Python", "AWS"],
-      },
+      // ✅ now fully dynamic
+      job_match,
+      // ...user,
     };
 
-    res.json({
+    return res.json({
       success: true,
-      message: "Applicant details fetched successfully",
+      message: 'Applicant details fetched successfully',
       data: applicantData,
     });
   } catch (error) {
-    console.error("Error fetching applicant details:", error);
-    res.status(500).json({
+    console.error('Error fetching applicant details:', error);
+    return res.status(500).json({
       success: false,
-      message: error.message || "Error fetching applicant details",
+      message: error.message || 'Error fetching applicant details',
+      data: null,
     });
   }
 };
+// export const getApplicantDetails = async (req, res) => {
+//   try {
+//     const { id: emp_id } = req.params;
+//     const { job_id } = req.query;
+
+//     // Find the user/applicant
+//     const user = await User.findById(emp_id);
+//     if (!user) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Applicant not found",
+//       });
+//     }
+
+//     // Find the application for this job if job_id is provided
+//     let application = null;
+//     let application_status = null;
+
+//     if (job_id) {
+//       const { Applicant } = await import("../models/applicants.js");
+//       application = await Applicant.findOne({
+//         userId: emp_id,
+//         jobId: job_id,
+//       });
+//       application_status = application?.status || null;
+//     }
+
+//     // Format user data for employer view
+//     const applicantData = {
+//       emp_id: user._id,
+//       fullName: user.fullName,
+//       email: user.email,
+//       mobile: user.mobile,
+//       profile_photo: user.profile_photo,
+//       nationality: user.nationality,
+//       gender: user.gender,
+//       dob: user.dob,
+//       application_status: application_status,
+//       employee_reviews: 4.5, // Placeholder for employee reviews
+
+//       // Employee-specific data
+//       education: user.education || [],
+//       experience: user.experience || [],
+//       skills: user.skills || [],
+//       languages: user.languages || [],
+//       resume: user.resume,
+//       about: user.about,
+//       currentPosition: user.currentPosition,
+//       expectedSalary: user.expectedSalary,
+//       preferredLocation: user.preferredLocation,
+
+//       // Job match data (placeholder)
+//       job_match: {
+//         match_percentage: 75,
+//         employee_have: 6,
+//         total_required: 8,
+//         matched_skills: ["JavaScript", "React", "Node.js", "MongoDB", "Express"],
+//         unmatched_skills: ["Python", "AWS"],
+//       },
+//     };
+
+//     res.json({
+//       success: true,
+//       message: "Applicant details fetched successfully",
+//       data: applicantData,
+//     });
+//   } catch (error) {
+//     console.error("Error fetching applicant details:", error);
+//     res.status(500).json({
+//       success: false,
+//       message: error.message || "Error fetching applicant details",
+//     });
+//   }
+// };
